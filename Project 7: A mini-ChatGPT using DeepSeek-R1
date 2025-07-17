@@ -1,0 +1,100 @@
+Project 7: A mini-ChatGPT using DeepSeek-R1
+Overview
+You’ll build a simple chatbot with:
+
+Conversational memory
+
+Local inference using DeepSeek-R1
+
+Optional frontend (CLI or Streamlit)
+
+The core focus: maintain back-and-forth context and simulate an intelligent assistant that runs 100% locally.
+
+Tech Stack
+ComponentTool/LibraryLLMdeepseek-r1 via OllamaBackendPython + REST clientMemorySimple list-based context (JSON/SQLite optional)UI (Optional)Streamlit / CLI
+
+Project Structure
+mini-chatgpt-deepseek/
+├── main.py
+├── chat.py
+├── memory.py
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies & Model
+pip install ollama
+ollama pull deepseek:base  # for DeepSeek-R1
+(If DeepSeek-R1 is not yet available under that name, use: deepseek or deepseek-coder.)
+
+Step 2: Create Conversation Memory Handler
+memory.py
+
+conversation_history = []
+ 
+def add_message(role, content):
+    conversation_history.append({"role": role, "content": content})
+ 
+def get_formatted_history():
+    history = ""
+    for msg in conversation_history:
+        prefix = "You:" if msg["role"] == "user" else "AI:"
+        history += f"{prefix} {msg['content']}\n"
+    return history
+ 
+def reset_history():
+    conversation_history.clear()
+Step 3: Chat Logic with DeepSeek
+chat.py
+
+import requests
+from memory import get_formatted_history, add_message
+ 
+def chat_with_deepseek(user_input):
+    add_message("user", user_input)
+ 
+    prompt = get_formatted_history() + "\nAI:"
+    
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "deepseek",
+        "prompt": prompt,
+        "stream": False,
+        "temperature": 0.7,
+    })
+ 
+    answer = response.json()["response"]
+    add_message("assistant", answer)
+    return answer
+Step 4: CLI Runner
+main.py
+
+from chat import chat_with_deepseek
+from memory import reset_history
+ 
+print("🤖 DeepSeek Mini-ChatGPT\nType 'exit' to quit or 'reset' to clear memory.")
+ 
+while True:
+    user_input = input("\nYou: ")
+    if user_input.strip().lower() == "exit":
+        break
+    elif user_input.strip().lower() == "reset":
+        reset_history()
+        print("🔄 Memory cleared.")
+        continue
+ 
+    reply = chat_with_deepseek(user_input)
+    print("\nAI:", reply)
+Output
+Runs like a basic ChatGPT, locally.
+
+Maintains chat context with each new turn.
+
+No API keys or cloud dependencies.
+
+Optional Enhancements
+Add Streamlit UI with chat history
+
+Save conversations in JSON or SQLite
+
+Add tools (web search, calc, etc.) via MCP
+
+Enable voice input/output (whisper + TTS)
+
