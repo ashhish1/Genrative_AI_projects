@@ -1,0 +1,117 @@
+Project 5: RAG powered by LLaMA 4
+Overview
+You’ll build a document question-answering system where:
+
+PDFs or text files are ingested and chunked
+
+Each chunk is embedded and stored in ChromaDB
+
+A user’s question is semantically matched to relevant chunks
+
+The retrieved context is passed to LLaMA 4 (via Ollama) to generate an answer
+
+Tech Stack
+ComponentTool/LibraryLLMOllama with llama3:latest (Meta's LLaMA 4 base)Vector DBChromaDBEmbeddingssentence-transformers (MiniLM)File IngestionPyMuPDF or plain .txt loaderUI (Optional)CLI / Streamlit / FastAPI
+
+Project Structure
+rag-llama4/
+├── main.py
+├── ingest.py
+├── query.py
+├── data/
+│   └── sample_docs/
+│       └── ai_intro.txt
+├── db/
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install chromadb sentence-transformers ollama
+ollama pull llama3  # LLaMA 4 base
+Step 2: Ingest Documents into Vector DB
+ingest.py
+
+import os
+import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def chunk_text(text, chunk_size=500):
+    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+ 
+def ingest_documents(folder="data/sample_docs", collection_name="llama_rag_docs"):
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+ 
+    for file in os.listdir(folder):
+        if file.endswith(".txt"):
+            with open(os.path.join(folder, file), "r", encoding="utf-8") as f:
+                text = f.read()
+                chunks = chunk_text(text)
+                ids = [f"{file}_chunk{i}" for i in range(len(chunks))]
+                collection.add(documents=chunks, ids=ids)
+Step 3: Query Engine using LLaMA 4
+query.py
+
+import chromadb
+import requests
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def query_llama_rag(user_query: str, collection_name="llama_rag_docs") -> str:
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+ 
+    results = collection.query(query_texts=[user_query], n_results=3)
+    context = "\n".join(results["documents"][0])
+ 
+    prompt = f"""Answer the question using only the context below:
+ 
+Context:
+{context}
+ 
+Question:
+{user_query}
+ 
+Answer:"""
+ 
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "llama3",
+        "prompt": prompt,
+        "stream": False
+    })
+ 
+    return response.json()["response"]
+Step 4: Run the Pipeline
+main.py
+
+from ingest import ingest_documents
+from query import query_llama_rag
+ 
+# Step 1: Index documents
+print("Indexing documents...")
+ingest_documents()
+ 
+# Step 2: Query
+while True:
+    user_input = input("\nAsk something about the documents (or type 'exit'): ")
+    if user_input.lower() == "exit":
+        break
+    answer = query_llama_rag(user_input)
+    print("\nAnswer:", answer)
+Output
+You now have a RAG system that:
+
+Accepts any .txt files as input
+
+Lets users ask questions in natural language
+
+Uses LLaMA 4 to answer based on retrieved, relevant document context
+
+Optional Extensions
+Switch to PDF ingestion using PyMuPDF
+
+Add Streamlit chat UI with document upload
+
+Expand to multi-modal support (prep for Project 6!)
+
+Save session history with SQLite or JSON
