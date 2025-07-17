@@ -1,0 +1,120 @@
+Project 10: Fine-Tune DeepSeek-R1
+Overview
+You’ll:
+
+Choose a task (e.g. Q&A, reasoning, or summarization)
+
+Prepare instruction-style data
+
+Apply parameter-efficient fine-tuning (LoRA)
+
+Run inference with the new model
+
+This works even on consumer GPUs (8–16 GB) using 4-bit quantization.
+
+Tech Stack
+ComponentTool/LibraryBase Modeldeepseek-ai/deepseek-llm-7b-base (HuggingFace)Fine-tuning MethodLoRA with peft + transformers + bitsandbytesTrainingQLoRA (4-bit)HardwareGPU (8GB+), or Colab
+
+Project Structure
+fine-tune-deepseek/
+├── train.py
+├── infer.py
+├── dataset/
+│   └── finetune_data.jsonl
+├── adapters/
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install transformers datasets peft accelerate bitsandbytes
+Use GPU (CUDA) if available, otherwise run in Google Colab.
+
+Step 2: Prepare Dataset
+dataset/finetune_data.jsonl
+
+{"instruction": "What is the capital of Italy?", "output": "The capital of Italy is Rome."}
+{"instruction": "Explain quantum computing in simple terms.", "output": "Quantum computing uses quantum bits that can be both 0 and 1, enabling powerful parallelism."}
+{"instruction": "Who wrote 1984?", "output": "1984 was written by George Orwell."}
+Step 3: Training Script
+train.py
+
+from datasets import load_dataset
+from transformers import AutoTokenizer, AutoModelForCausalLM, TrainingArguments, Trainer
+from peft import LoraConfig, get_peft_model, prepare_model_for_kbit_training
+import torch
+ 
+model_id = "deepseek-ai/deepseek-llm-7b-base"
+ 
+tokenizer = AutoTokenizer.from_pretrained(model_id)
+tokenizer.pad_token = tokenizer.eos_token
+ 
+dataset = load_dataset("json", data_files="dataset/finetune_data.jsonl")["train"]
+ 
+def format(sample):
+    prompt = f"### Instruction:\n{sample['instruction']}\n\n### Response:\n{sample['output']}"
+    return {"input_ids": tokenizer(prompt, truncation=True, padding="max_length", max_length=512)["input_ids"]}
+ 
+dataset = dataset.map(format)
+ 
+model = AutoModelForCausalLM.from_pretrained(
+    model_id,
+    load_in_4bit=True,
+    device_map="auto",
+    torch_dtype=torch.float16
+)
+ 
+model = prepare_model_for_kbit_training(model)
+ 
+lora_config = LoraConfig(
+    r=8,
+    lora_alpha=16,
+    target_modules=["q_proj", "v_proj"],
+    lora_dropout=0.05,
+    bias="none",
+    task_type="CAUSAL_LM"
+)
+ 
+model = get_peft_model(model, lora_config)
+ 
+training_args = TrainingArguments(
+    output_dir="./adapters",
+    per_device_train_batch_size=2,
+    num_train_epochs=3,
+    learning_rate=2e-4,
+    logging_dir="./logs",
+    save_total_limit=2,
+    fp16=True,
+    report_to="none"
+)
+ 
+trainer = Trainer(
+    model=model,
+    args=training_args,
+    train_dataset=dataset
+)
+ 
+trainer.train()
+model.save_pretrained("adapters")
+Step 4: Inference Using Fine-Tuned Adapter
+infer.py
+
+from transformers import AutoModelForCausalLM, AutoTokenizer
+from peft import PeftModel
+ 
+model = AutoModelForCausalLM.from_pretrained("deepseek-ai/deepseek-llm-7b-base", device_map="auto", load_in_4bit=True)
+model = PeftModel.from_pretrained(model, "adapters")
+tokenizer = AutoTokenizer.from_pretrained("deepseek-ai/deepseek-llm-7b-base")
+ 
+prompt = "### Instruction:\nWho is the author of 1984?\n\n### Response:"
+inputs = tokenizer(prompt, return_tensors="pt").to("cuda")
+ 
+output = model.generate(**inputs, max_new_tokens=100)
+print(tokenizer.decode(output[0], skip_special_tokens=True))
+Output
+Your model now generates instruction-tuned completions using your custom logic, tone, or structure — all without touching base weights.
+
+Optional Extensions
+Convert LoRA-adapted model to GGUF (for Ollama compatibility) using tools like transformers -> llama.cpp
+
+Fine-tune for multi-turn conversation, reasoning, or summarization
+
+Train on domain-specific data (e.g. airline manuals, medical docs)
