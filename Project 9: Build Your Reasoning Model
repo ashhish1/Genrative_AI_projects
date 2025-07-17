@@ -1,0 +1,92 @@
+Project 9: Build Your Reasoning Model
+Overview
+You’ll create a local agent that:
+
+Uses a structured “think step by step” format
+
+Can solve logic/math/factual problems with internal CoT prompting
+
+Allows experimentation with reasoning templates, instruction tuning, or custom logic chains
+
+We’ll simulate reasoning even without full model fine-tuning — just prompt engineering and internal chaining.
+
+Tech Stack
+ComponentTool/LibraryLLMmistral, llama3, or deepseek via OllamaReasoning TemplateChain-of-Thought formatOptional ExtensionsLangGraph, LoRA fine-tuning (advanced)UICLI (or Streamlit later)
+
+Project Structure
+reasoning-model/
+├── main.py
+├── prompts/
+│   └── reasoning_templates.py
+├── problems/
+│   └── samples.txt
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install & Pull Model
+pip install ollama
+ollama pull mistral  # or deepseek, llama3
+Step 2: Define Reasoning Prompt Template
+prompts/reasoning_templates.py
+
+def get_reasoning_prompt(question: str) -> str:
+    return f"""You are a logical reasoning AI. Solve the problem step by step using clear reasoning.
+ 
+Problem: {question}
+ 
+Let's think step by step:
+"""
+Step 3: Sample Problems
+problems/samples.txt
+
+If Alice has 3 apples and gives 1 to Bob, how many does she have left?
+ 
+Tom is twice as old as Jerry. If Jerry is 5 years old, how old is Tom?
+ 
+The train departs at 3:15 PM and takes 2 hours 45 minutes. What time does it arrive?
+ 
+What is the capital of France?
+ 
+If a box contains 3 red, 2 blue, and 5 green balls, what’s the probability of drawing a red ball?
+Step 4: Reasoning Agent Core
+main.py
+
+import requests
+from prompts.reasoning_templates import get_reasoning_prompt
+ 
+def ask_question_with_reasoning(question):
+    prompt = get_reasoning_prompt(question)
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "mistral",
+        "prompt": prompt,
+        "stream": False,
+        "temperature": 0.4,
+        "stop": ["\n\n"]
+    })
+    return response.json()["response"]
+ 
+print("🤖 Reasoning AI Agent\nAsk logic/math/factual problems. Type 'exit' to quit.")
+ 
+while True:
+    user_input = input("\nProblem: ")
+    if user_input.strip().lower() == "exit":
+        break
+    answer = ask_question_with_reasoning(user_input)
+    print("\n🧠 Step-by-Step Answer:\n", answer)
+Output
+You’ll get structured answers like:
+
+Question:
+"If Alice has 3 apples and gives 1 to Bob, how many does she have left?"
+
+Response:
+"She starts with 3 apples. She gives 1 away. So 3 - 1 = 2.
+Final Answer: 2."
+
+Optional Extensions
+Add multiple templates: logic, math, facts, comparisons
+
+Add self-checking: have a verifier agent confirm the chain
+
+Build a Graph-based chain with LangGraph or Haystack
+
+Add fine-tuning data collection for actual custom model training
