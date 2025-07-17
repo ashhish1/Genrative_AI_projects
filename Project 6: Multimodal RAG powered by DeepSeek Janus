@@ -1,0 +1,147 @@
+Project 6: Multimodal RAG powered by DeepSeek Janus
+Overview
+You’ll build a RAG system that:
+
+Ingests text and image documents
+
+Stores them with associated embeddings
+
+At query time, retrieves relevant content (text or image)
+
+Feeds the results to DeepSeek-VL (Janus) for a multimodal response
+
+Tech Stack
+ComponentTool/LibraryMultimodal LLM[DeepSeek-VL via Ollama or local API]Embedding FunctionCLIP (for images), MiniLM (for text)Vector DBChromaDBOCR (if needed)pytesseract or easyocrFile HandlingPDF, TXT, JPG, PNGInterface (optional)Streamlit / FastAPI
+
+Project Structure
+multimodal-rag-janus/
+├── ingest.py
+├── query.py
+├── main.py
+├── data/
+│   ├── documents/
+│   │   ├── intro_ai.txt
+│   │   └── chart.png
+├── db/
+├── utils/
+│   ├── image_embedder.py
+│   └── text_embedder.py
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install chromadb sentence-transformers torchvision transformers pytesseract pillow
+If using deepseek-vl locally via Ollama:
+
+ollama pull deepseek-vl
+Step 2: Embedding Helpers
+utils/text_embedder.py
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def get_text_embedder():
+    return SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+utils/image_embedder.py
+from PIL import Image
+from torchvision import transforms
+from transformers import CLIPProcessor, CLIPModel
+import torch
+ 
+class CLIPImageEmbedder:
+    def __init__(self):
+        self.model = CLIPModel.from_pretrained("openai/clip-vit-base-patch32")
+        self.processor = CLIPProcessor.from_pretrained("openai/clip-vit-base-patch32")
+ 
+    def get_embedding(self, image_path):
+        image = Image.open(image_path).convert("RGB")
+        inputs = self.processor(images=image, return_tensors="pt")
+        with torch.no_grad():
+            embedding = self.model.get_image_features(**inputs)
+        return embedding.squeeze().tolist()
+Step 3: Ingest Text & Image Files
+ingest.py
+
+import os
+import chromadb
+from utils.text_embedder import get_text_embedder
+from utils.image_embedder import CLIPImageEmbedder
+ 
+def ingest_multimodal(folder="data/documents", collection_name="janus_docs"):
+    client = chromadb.Client()
+    collection = client.get_or_create_collection(
+        name=collection_name,
+        embedding_function=get_text_embedder()
+    )
+ 
+    clip_embedder = CLIPImageEmbedder()
+    i = 0
+ 
+    for fname in os.listdir(folder):
+        fpath = os.path.join(folder, fname)
+        if fname.endswith(".txt"):
+            with open(fpath, "r", encoding="utf-8") as f:
+                text = f.read()
+                collection.add(documents=[text], ids=[f"text-{i}"])
+                i += 1
+        elif fname.endswith((".jpg", ".png")):
+            embedding = clip_embedder.get_embedding(fpath)
+            collection.add(documents=[f"Image file: {fname}"], ids=[f"image-{i}"], embeddings=[embedding])
+            i += 1
+Step 4: Multimodal Query with DeepSeek-VL
+query.py
+
+import requests
+import chromadb
+from utils.text_embedder import get_text_embedder
+ 
+def query_multimodal_rag(query, collection_name="janus_docs"):
+    client = chromadb.Client()
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=get_text_embedder())
+ 
+    results = collection.query(query_texts=[query], n_results=3)
+    context = "\n".join(results["documents"][0])
+ 
+    prompt = f"""You are a multimodal AI assistant. Answer the question using the following context:
+    
+{context}
+ 
+Question: {query}
+Answer:"""
+ 
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "deepseek-vl",
+        "prompt": prompt,
+        "stream": False
+    })
+    
+    return response.json()["response"]
+Step 5: Run It All
+main.py
+
+from ingest import ingest_multimodal
+from query import query_multimodal_rag
+ 
+print("Indexing multimodal documents...")
+ingest_multimodal()
+ 
+while True:
+    question = input("\nAsk a question (or 'exit'): ")
+    if question == "exit":
+        break
+    answer = query_multimodal_rag(question)
+    print("\nAnswer:", answer)
+Output
+Ask questions like:
+
+“What is described in the image file?”
+
+“Summarize the main idea from the text and image combined.”
+
+“What are the key topics covered in the chart?”
+
+Optional Extensions
+Use OCR to extract text from diagrams or scanned documents
+
+Add image captioning or vision-only Q&A
+
+Integrate Streamlit upload/chat UI
+
+Store metadata (file type, origin) for smarter tool use
