@@ -1,0 +1,153 @@
+Project 8: Corrective RAG
+Overview
+This project improves a RAG pipeline by adding a second-pass verifier agent that:
+
+Evaluates the initial answer
+
+Checks for factual consistency with retrieved context
+
+Corrects or confirms the final output
+
+You’ll simulate how multi-step reasoning and self-reflection can improve answer quality.
+
+Tech Stack
+ComponentTool/LibraryLLMOllama with mistral / llama3 / deepseekVector DBChromaDBEmbeddingssentence-transformers (MiniLM)Feedback AgentSame LLM, different promptUI (Optional)CLI or Streamlit
+
+Project Structure
+corrective-rag/
+├── main.py
+├── ingest.py
+├── answer.py
+├── verify.py
+├── data/
+│   └── context_docs/
+├── db/
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install chromadb sentence-transformers ollama
+ollama pull mistral  # or llama3 / deepseek
+Step 2: Ingest Contextual Documents
+ingest.py
+
+import os
+import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def chunk_text(text, chunk_size=500):
+    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+ 
+def ingest_docs(folder="data/context_docs", collection_name="corrective_rag"):
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+ 
+    for fname in os.listdir(folder):
+        if fname.endswith(".txt"):
+            with open(os.path.join(folder, fname), "r", encoding="utf-8") as f:
+                text = f.read()
+                chunks = chunk_text(text)
+                ids = [f"{fname}_chunk{i}" for i in range(len(chunks))]
+                collection.add(documents=chunks, ids=ids)
+Step 3: Initial RAG Answer
+answer.py
+
+import requests
+import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def get_rag_answer(query, collection_name="corrective_rag"):
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+ 
+    results = collection.query(query_texts=[query], n_results=3)
+    context = "\n".join(results["documents"][0])
+ 
+    prompt = f"""Use the following context to answer the question.
+ 
+Context:
+{context}
+ 
+Question:
+{query}
+ 
+Answer:"""
+ 
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "mistral",
+        "prompt": prompt,
+        "stream": False
+    })
+ 
+    return response.json()["response"], context
+Step 4: Verifier Pass
+verify.py
+
+import requests
+ 
+def verify_and_correct_answer(question, context, initial_answer):
+    prompt = f"""You are an AI verifier. Review the following:
+ 
+Question:
+{question}
+ 
+Context:
+{context}
+ 
+Initial Answer:
+{initial_answer}
+ 
+Does the answer match the context? If not, correct it. Be concise.
+ 
+Verified Answer:"""
+ 
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "mistral",
+        "prompt": prompt,
+        "stream": False
+    })
+ 
+    return response.json()["response"]
+Step 5: Run Corrective RAG Pipeline
+main.py
+
+from ingest import ingest_docs
+from answer import get_rag_answer
+from verify import verify_and_correct_answer
+ 
+# Step 1: Load data into Chroma
+print("Indexing documents...")
+ingest_docs()
+ 
+# Step 2: Ask a question
+while True:
+    user_question = input("\nAsk a question (or type 'exit'): ")
+    if user_question.lower() == "exit":
+        break
+ 
+    print("\n🔍 Generating initial answer...")
+    initial_answer, context = get_rag_answer(user_question)
+    print("\n🧠 Initial Answer:\n", initial_answer)
+ 
+    print("\n🔎 Verifying and correcting...")
+    verified = verify_and_correct_answer(user_question, context, initial_answer)
+    print("\n✅ Final Answer:\n", verified)
+Output
+You now have a Corrective RAG agent that:
+
+Answers based on local document context
+
+Automatically critiques and corrects its own response
+
+Uses no API keys, all local tools
+
+Optional Extensions
+Add a "confidence rating" in the verifier's output
+
+Save versions: user question, initial answer, corrected answer
+
+Add streamed response from LLM
+
+Use multiple verifier agents (ensemble checking)
+
