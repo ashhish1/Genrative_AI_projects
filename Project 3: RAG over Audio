@@ -1,0 +1,116 @@
+Project 3: RAG over Audio
+Overview
+You'll build a system where:
+
+Audio is transcribed to text (using Whisper)
+
+Text is chunked and embedded into a vector store (ChromaDB)
+
+User queries are semantically matched and passed to a local LLM for reasoning (Ollama)
+
+Tech Stack
+ComponentTool/LibraryAudio Transcriptionwhisper by OpenAIVector DBChromaDBEmbeddingssentence-transformers or OllamaLLMmistral or llama3 via OllamaInterfaceStreamlit / CLI / FastAPIFile Types.mp3, .wav, .m4a
+
+Project Structure
+rag-over-audio/
+├── main.py
+├── transcribe.py
+├── ingest.py
+├── query.py
+├── audio/
+│   └── sample.wav
+├── db/
+├── requirements.txt
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install openai-whisper chromadb sentence-transformers pydub ollama
+brew install ffmpeg  # required by Whisper
+ollama pull mistral
+Step 2: Transcribe Audio
+transcribe.py
+
+import whisper
+ 
+def transcribe_audio(file_path: str) -> str:
+    model = whisper.load_model("base")
+    result = model.transcribe(file_path)
+    return result["text"]
+Step 3: Ingest into Vector DB
+ingest.py
+
+import chromadb
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def chunk_text(text, chunk_size=500):
+    return [text[i:i+chunk_size] for i in range(0, len(text), chunk_size)]
+ 
+def ingest_text_to_chroma(text, collection_name="audio_docs"):
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+ 
+    chunks = chunk_text(text)
+    ids = [f"chunk-{i}" for i in range(len(chunks))]
+    collection.add(documents=chunks, ids=ids)
+Step 4: Query the Audio Content
+query.py
+
+import chromadb
+import requests
+from chromadb.utils.embedding_functions import SentenceTransformerEmbeddingFunction
+ 
+def query_audio_knowledge(query: str, collection_name="audio_docs"):
+    client = chromadb.Client()
+    embedder = SentenceTransformerEmbeddingFunction(model_name="all-MiniLM-L6-v2")
+    collection = client.get_or_create_collection(name=collection_name, embedding_function=embedder)
+    
+    results = collection.query(query_texts=[query], n_results=3)
+    context = "\n".join(results["documents"][0])
+ 
+    prompt = f"Answer the following based on the audio transcript context:\n{context}\n\nQuestion: {query}"
+    response = requests.post("http://localhost:11434/api/generate", json={
+        "model": "mistral",
+        "prompt": prompt,
+        "stream": False
+    })
+    return response.json()["response"]
+Step 5: Run the Pipeline
+main.py
+
+from transcribe import transcribe_audio
+from ingest import ingest_text_to_chroma
+from query import query_audio_knowledge
+ 
+audio_path = "audio/sample.wav"
+ 
+# Step 1: Transcribe
+print("Transcribing...")
+transcript = transcribe_audio(audio_path)
+ 
+# Step 2: Ingest into Chroma
+print("Indexing transcript...")
+ingest_text_to_chroma(transcript)
+ 
+# Step 3: Ask a question
+print("Ask a question about the audio:")
+user_query = input(">> ")
+answer = query_audio_knowledge(user_query)
+print("\nAnswer:", answer)
+Output
+You now have an audio-aware RAG system!
+You can ask questions like:
+
+“What was the guest’s opinion on AI safety?”
+
+“Summarize the key argument in the second half.”
+
+Optional Enhancements
+Add Streamlit upload and chat UI
+
+Include speaker diarization for multi-speaker audio
+
+Support longer audio splitting
+
+Save transcripts with timestamps
+
+Add a summary generator agent
