@@ -1,0 +1,167 @@
+Unified AI Collaboration: Implementing Google's Agent2Agent Protocol
+Here's a hands-on implementation that showcases Google's Agent2Agent (A2A) protocol using three distinct provider agents with different capabilities:
+
+Agent 1: Summarizer (shortens input text)
+
+Agent 2: Text Generator (generates additional text based on prompt)
+
+Agent 3: Sentiment Analyzer (evaluates text sentiment)
+
+Project Structure:
+a2a-multi-capability-demo/
+├── agent_directory.json
+├── agent_provider.py
+├── agent_requester.py
+├── requirements.txt
+Step 1: Create requirements.txt
+fastapi
+uvicorn[standard]
+requests
+textblob
+Install dependencies:
+
+pip install -r requirements.txt
+python -m textblob.download_corpora
+Step 2: Define Agents (agent_directory.json)
+{
+  "agents": [
+    {
+      "agent_id": "summarizer",
+      "name": "SummarizationAgent",
+      "capabilities": ["summarize"],
+      "endpoint": "http://localhost:8001/summarize"
+    },
+    {
+      "agent_id": "text_generator",
+      "name": "TextGeneratorAgent",
+      "capabilities": ["generate_text"],
+      "endpoint": "http://localhost:8002/generate"
+    },
+    {
+      "agent_id": "sentiment_analyzer",
+      "name": "SentimentAnalysisAgent",
+      "capabilities": ["sentiment_analysis"],
+      "endpoint": "http://localhost:8003/analyze"
+    }
+  ]
+}
+Step 3: Create the Universal Provider Agent (agent_provider.py)
+This single script handles different modes based on command-line arguments:
+
+from fastapi import FastAPI
+from pydantic import BaseModel
+from textblob import TextBlob
+import sys
+ 
+app = FastAPI()
+mode = sys.argv[1] if len(sys.argv) > 1 else "summarize"
+ 
+class Task(BaseModel):
+    task_id: str
+    text: str
+ 
+@app.post("/summarize")
+def summarize(task: Task):
+    summary = task.text[:100] + "..." if len(task.text) > 100 else task.text
+    return {
+        "provider": "SummarizationAgent",
+        "task_id": task.task_id,
+        "status": "completed",
+        "result": summary
+    }
+ 
+@app.post("/generate")
+def generate_text(task: Task):
+    generated_text = task.text + " [This is AI-generated continuation.]"
+    return {
+        "provider": "TextGeneratorAgent",
+        "task_id": task.task_id,
+        "status": "completed",
+        "result": generated_text
+    }
+ 
+@app.post("/analyze")
+def sentiment_analysis(task: Task):
+    analysis = TextBlob(task.text).sentiment
+    sentiment = "Positive" if analysis.polarity > 0 else "Negative" if analysis.polarity < 0 else "Neutral"
+    return {
+        "provider": "SentimentAnalysisAgent",
+        "task_id": task.task_id,
+        "status": "completed",
+        "result": {
+            "sentiment": sentiment,
+            "polarity": analysis.polarity,
+            "subjectivity": analysis.subjectivity
+        }
+    }
+ 
+if __name__ == "__main__":
+    import uvicorn
+    port = int(sys.argv[2]) if len(sys.argv) > 2 else 8001
+    uvicorn.run(app, host="0.0.0.0", port=port)
+Step 4: Launch All Three Provider Agents
+Run each in a separate terminal:
+
+uvicorn agent_provider:app --reload --port 8001 -- summarize
+uvicorn agent_provider:app --reload --port 8002 -- generate
+uvicorn agent_provider:app --reload --port 8003 -- analyze
+Step 5: Requester Agent to Delegate Tasks (agent_requester.py)
+This agent sends specific tasks based on agent capability:
+
+import requests
+import json
+import uuid
+ 
+# Load agent directory
+with open('agent_directory.json') as f:
+    directory = json.load(f)
+ 
+tasks = [
+    {"capability": "summarize", "text": "Google’s Agent2Agent protocol enables AI agents to collaborate effectively and share tasks securely within multi-agent environments."},
+    {"capability": "generate_text", "text": "The future of AI agents"},
+    {"capability": "sentiment_analysis", "text": "I'm thrilled with the results of using the new Agent2Agent protocol!"}
+]
+ 
+for task_info in tasks:
+    capability = task_info["capability"]
+    provider = next(agent for agent in directory['agents'] if capability in agent['capabilities'])
+ 
+    payload = {
+        "task_id": str(uuid.uuid4()),
+        "text": task_info["text"]
+    }
+ 
+    endpoint = provider['endpoint']
+    response = requests.post(endpoint, json=payload)
+ 
+    if response.status_code == 200:
+        result = response.json()
+        print(f"\nProvider: {result['provider']}")
+        print(f"Task ID: {result['task_id']}")
+        print(f"Task Status: {result['status']}")
+        print(f"Result: {result['result']}")
+    else:
+        print(f"Error contacting provider {provider['name']} (status: {response.status_code})")
+Step 6: Run the Requester Agent
+python agent_requester.py
+Example Output:
+Provider: SummarizationAgent
+Task ID: 44d10dca-4a74-4f2a-a104-b3d1c2e9f5c7
+Task Status: completed
+Result: Google’s Agent2Agent protocol enables AI agents to collaborate effectively and share tasks secu...
+ 
+Provider: TextGeneratorAgent
+Task ID: dbbf4ce8-29c8-4f4b-b8a7-51c6359204bb
+Task Status: completed
+Result: The future of AI agents [This is AI-generated continuation.]
+ 
+Provider: SentimentAnalysisAgent
+Task ID: a3d1bf01-dcc7-4045-b4b3-930df846f7ee
+Task Status: completed
+Result: {'sentiment': 'Positive', 'polarity': 0.625, 'subjectivity': 0.8}
+What You’ve Accomplished:
+Multiple Agents, Varied Capabilities: Demonstrated A2A flexibility by handling different tasks.
+
+Agent Discovery and Delegation: Dynamically routed tasks based on capabilities.
+
+Standardized Interaction: Each agent conforms to A2A-style JSON-based API structure.
