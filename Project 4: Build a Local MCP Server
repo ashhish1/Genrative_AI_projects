@@ -1,0 +1,104 @@
+Project 4: Build a Local MCP Server
+Overview
+This project sets up a local MCP server with one or more tools. You’ll configure:
+
+A local LLM (via Ollama)
+
+An MCP-compatible agent that can invoke tools
+
+Custom tools like document search or calculator
+
+REST API to send queries to the agent
+
+Tech Stack
+ComponentToolAgent Runtimemcp Python SDKLLM BackendOllama with mistral or llama3ToolsCustom Python tools (e.g. search, RAG, math)InterfacePython or HTTP POST
+
+Project Structure
+local-mcp-server/
+├── main.py
+├── tools/
+│   ├── math_tool.py
+│   └── file_search_tool.py
+├── requirements.txt
+└── README.md
+Step-by-Step Implementation
+Step 1: Install Dependencies
+pip install mcp ollama
+ollama pull mistral  # or llama3, deepseek, etc.
+Step 2: Build a Tool (e.g., Math Calculator)
+tools/math_tool.py
+
+from mcp.tools import Tool
+ 
+class MathTool(Tool):
+    def __init__(self):
+        super().__init__(
+            name="math_tool",
+            description="Performs basic arithmetic operations. Usage: add, subtract, multiply, divide."
+        )
+ 
+    def invoke(self, input_text: str) -> str:
+        try:
+            result = eval(input_text, {"__builtins__": {}})
+            return f"Result: {result}"
+        except Exception as e:
+            return f"Error: {e}"
+Step 3: (Optional) Add Another Tool – File Search
+tools/file_search_tool.py
+
+from mcp.tools import Tool
+ 
+class FileSearchTool(Tool):
+    def __init__(self):
+        super().__init__(name="file_search", description="Search inside a file.")
+        with open("sample.txt", "r") as f:
+            self.content = f.read()
+ 
+    def invoke(self, input_text: str) -> str:
+        if input_text.lower() in self.content.lower():
+            return f"Found '{input_text}' in document."
+        return f"'{input_text}' not found in document."
+Add a sample.txt with any content you'd like.
+
+Step 4: Start the MCP Server
+main.py
+
+from mcp import Agent, ToolRegistry
+from tools.math_tool import MathTool
+from tools.file_search_tool import FileSearchTool
+ 
+tools = ToolRegistry()
+tools.register(MathTool())
+tools.register(FileSearchTool())
+ 
+agent = Agent(
+    name="local-agent",
+    llm="http://localhost:11434/api/generate",  # Ollama local endpoint
+    tools=tools,
+    temperature=0.7,
+)
+ 
+if __name__ == "__main__":
+    agent.serve(port=5000)
+Step 5: Test the Server
+Send a query using Python or curl:
+
+import requests
+ 
+query = "What is 15 * (3 + 2)? Use the math_tool."
+res = requests.post("http://localhost:5000/ask", json={"query": query})
+print(res.json())
+Output
+Your local MCP agent now responds to queries and invokes tools based on prompt needs.
+Try:
+
+"Use the math_tool to calculate 75/3"
+
+"Use the file_search tool to check if the word 'robot' is in the file"
+
+Optional Add-ons
+Add tools like: Wolfram, Wikipedia, LangChain-style RAG, weather checker
+
+Wrap it with FastAPI or Streamlit for local UI
+
+Enable logging + memory with a JSON file
